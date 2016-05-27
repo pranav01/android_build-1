@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 # Copyright (C) 2012-2013, The CyanogenMod Project
+# Copyright (C) 2012-2015, SlimRoms Project
+# Copyright (C) 2015-2016, The SSHD Project
+# Copyright (C) 2015-2016, The YUTeleventures Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -46,25 +49,57 @@ else:
     depsonly = None
 
 try:
-    device = product[product.index("_") + 1:]
-except:
-    device = product
+    # For python3
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+except ImportError:
+    # For python2
+    import imp
+    import urllib2
+    import urlparse
+    urllib = imp.new_module('urllib')
+    urllib.error = urllib2
+    urllib.parse = urlparse
+    urllib.request = urllib2
 
-if not depsonly:
-    print("Device %s not found. Attempting to retrieve device repository from CyanogenMod Github (http://github.com/CyanogenMod)." % device)
+DEBUG = False
+default_manifest = ".repo/manifest.xml"
 
-repositories = []
+custom_local_manifest = ".repo/local_manifests/yu_manifest.xml"
+custom_default_revision = "yu-mm-6.0.1"
+custom_dependencies = "yu.dependencies"
+org_manifest = ""  # leave empty if org is provided in manifest
+org_display = "YUTeleventures"  # needed for displaying
 
-try:
-    authtuple = netrc.netrc().authenticators("api.github.com")
+github_auth = None
 
-    if authtuple:
-        auth_string = ('%s:%s' % (authtuple[0], authtuple[2])).encode()
-        githubauth = base64.encodestring(auth_string).decode().replace('\n', '')
-    else:
-        githubauth = None
-except:
-    githubauth = None
+
+local_manifests = '.repo/local_manifests'
+if not os.path.exists(local_manifests):
+    os.makedirs(local_manifests)
+
+
+def debug(*args, **kwargs):
+    if DEBUG:
+        print(*args, **kwargs)
+
+
+def add_auth(g_req):
+    global github_auth
+    if github_auth is None:
+        try:
+            auth = netrc.netrc().authenticators("api.github.com")
+        except (netrc.NetrcParseError, IOError):
+            auth = None
+        if auth:
+            github_auth = base64.b64encode(
+                ('%s:%s' % (auth[0], auth[2])).encode()
+            )
+        else:
+            github_auth = ""
+    if github_auth:
+        g_req.add_header("Authorization", "Basic %s" % github_auth)
 
 def add_auth(githubreq):
     if githubauth:
@@ -182,8 +217,17 @@ def add_to_manifest(repositories, fallback_branch = None):
         project = ElementTree.Element("project", attrib = { "path": repo_target,
             "remote": "github", "name": "CyanogenMod/%s" % repo_name })
 
-        if 'branch' in repository:
-            project.set('revision',repository['branch'])
+        print('Adding dependency: %s -> %s' % (repo_name, repo_target))
+
+        project = ElementTree.Element(
+            "project",
+            attrib={"path": repo_target,
+                    "remote": "yu",
+                    "name": "%s" % repo_name}
+        )
+
+        if 'branch' in repo:
+            project.set('revision', repo['branch'])
         elif fallback_branch:
             print("Using fallback branch %s for %s" % (fallback_branch, repo_name))
             project.set('revision', fallback_branch)
